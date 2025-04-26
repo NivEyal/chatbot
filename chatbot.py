@@ -1116,7 +1116,6 @@ with st.sidebar:
     MENU_OPTIONS = {
         "🔍 Stock Info": ["What's up with $TSLA?", "Tell me about Apple", "Info on Coca-Cola?", "$ESLT.TA details", "Microsoft data?", "3M Company info?"],
         # "🤖 Scan Signals": ["Scan $SPY", "Entry signal on $MSFT?", "Scan $NVDA for signals"], # REMOVED
-        "🆚 Compare": ["Compare $MSFT to $GOOGL", "Intel vs Nvidia?", "Compare 3M and General Electric"],
         "📊 TA Concepts": ["What is SMA?", "Explain Moving Averages?", "What is Support/Resistance?", "Candlesticks?", "What are technical indicators?"], # Kept TA concepts
         "⚖️ Risk": ["What's the risk score for $AMD?", "Explain the risk score model", "How risky is $TQQQ?", "Risk for GOOG?"],
         "📰 News Sentiment": ["News sentiment for $MSFT?", "Recent news sentiment for $NVDA?", "Sentiment analysis for META?"],
