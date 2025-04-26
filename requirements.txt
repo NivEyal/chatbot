@@ -4,7 +4,7 @@ yfinance
 pandas
 praw
 vaderSentiment
-pandas_ta
+pandas-ta==0.3.14b0
 alpaca_trade_api
 lxml
 riskfolio-lib
