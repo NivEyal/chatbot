@@ -1,0 +1,14 @@
+openai
+streamlit
+yfinance
+pandas
+praw
+vaderSentiment
+pandas_ta
+alpaca_trade_api
+lxml
+riskfolio-lib
+finnhub-python
+vaderSentiment 
+feedparser
+yahooquery
