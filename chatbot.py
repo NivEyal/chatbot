@@ -1347,7 +1347,15 @@ if user_input_triggered:
         except Exception as e: error_message = f"😥 Unexpected error: {e}. Please check logs."; placeholder.error(error_message); logging.error(f"Unexpected Error: {e}", exc_info=True); st.session_state.messages.append({"role": "assistant", "content": f"Internal Error: {e}"})
 
 
+# ... (end of the main processing logic and API calls) ...
+
 # --- Footer ---
-st.divider()
-# Updated footer disclaimer
+st.divider() # Divider before the donation link
+
+# --- Start of Donation Section ---
+st.caption("Like this tool? Consider supporting its development: [☕ Buy me a coffee (PayPal.me)](https://paypal.me/niveyal) (Optional, but appreciated!)")
+# --- End of Donation Section ---
+
+st.divider() # Divider between donation and disclaimer
+
 st.caption(f"*Data: Yahoo Finance (via yfinance), News (NewsAPI, FMP, RSS - {NEWS_DAYS_BACK}d / VADER), Wikipedia, Model Calculations, ETS Forecast. May be delayed. Not financial advice.*")
