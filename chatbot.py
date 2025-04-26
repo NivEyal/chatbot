@@ -117,23 +117,17 @@ try:
     import riskfolio.src.OwaWeights as owa
     RISKFOLIO_AVAILABLE = True
     logging.info("Riskfolio-Lib found and imported successfully.")
-    # Ensure fallback functions are defined if Riskfolio is missing
     if not all(hasattr(rk, func) for func in ['SemiDeviation', 'CDaR_Abs']):
         logging.warning("Missing required Riskfolio functions. Disabling factors.")
         if not hasattr(rk, 'SemiDeviation'): DEFAULT_WEIGHTS['semi_deviation'] = 0.0
         if not hasattr(rk, 'CDaR_Abs'): DEFAULT_WEIGHTS['cdar'] = 0.0
     if not hasattr(owa, 'owa_gmd'): DEFAULT_WEIGHTS['gmd'] = 0.0
-    # Renormalize weights if any were disabled
     total_w = sum(DEFAULT_WEIGHTS.values())
-    if total_w > 0 and abs(total_w - 1.0) > 1e-6:
-        DEFAULT_WEIGHTS = {k: v / total_w for k, v in DEFAULT_WEIGHTS.items()}
-    elif total_w <= 0:
-        logging.error("All risk weights became zero after disabling Riskfolio factors!")
-
+    if total_w > 0 and abs(total_w - 1.0) > 1e-6: DEFAULT_WEIGHTS = {k: v / total_w for k, v in DEFAULT_WEIGHTS.items()}
+    elif total_w <= 0: logging.error("All risk weights became zero after disabling Riskfolio factors!")
 except ImportError:
     logging.warning("Riskfolio-Lib not installed or import failed. Advanced cov methods & risk factors disabled.")
     RISKFOLIO_AVAILABLE = False
-    # Define dummy/fallback functions if Riskfolio is not available
     class af:
         @staticmethod
         def is_pos_def(x):
@@ -181,11 +175,9 @@ except ImportError:
 
 
 # --- Streamlit Page Config ---
-# Updated Title
 st.set_page_config(page_title="📈 Financial Chat + Risk + News + Forecasting", layout="wide", initial_sidebar_state="expanded")
 
 # --- API Key Validation ---
-# Basic checks even with hardcoded keys
 missing_keys = []
 if not OPENAI_API_KEY or not OPENAI_API_KEY.startswith("sk-"):
     missing_keys.append("OpenAI API Key")
@@ -215,7 +207,6 @@ except Exception as e: st.error(f"Error initializing OpenAI client: {e}"); loggi
 MODEL_NAME = "gpt-4o"; MAX_TOKENS = 1200; TEMPERATURE = 0.5
 
 # --- Helper Functions (Including Date Parsing) ---
-# [parse_date function remains the same]
 def parse_date(date_string):
     if not date_string: return None
     try:
@@ -225,7 +216,6 @@ def parse_date(date_string):
         logging.debug(f"Could not parse date: {date_string}")
         return None
 
-# [get_stock_data function remains the same]
 @st.cache_data(ttl=300)
 def get_stock_data(ticker):
     logging.info(f"Fetching Yahoo Finance summary data for {ticker}")
@@ -267,18 +257,18 @@ def get_stock_data(ticker):
         else: logging.error(f"Error fetching yfinance data for {ticker}: {e}", exc_info=True); st.toast(f"⚠️ Error fetching data from Yahoo for {ticker}.", icon="❌")
         return None
 
-# [get_unified_yfinance_history function remains the same]
+
 @st.cache_data(ttl=HISTORY_CACHE_DURATION_SECONDS)
 def get_unified_yfinance_history(ticker: str, period="3y"):
     logging.info(f"Fetching UNIFIED yfinance history for {ticker}, period: {period}")
     try:
         yf_ticker_obj = yf.Ticker(ticker)
         df = yf_ticker_obj.history(period=period, interval="1d", auto_adjust=False)
-        if df is None or df.empty: logging.warning(f"No data from unified yfinance history for {ticker}."); st.toast(f"⚠️ yfinance no unified history for {ticker}.", icon="⚠️"); return None
+        if df is None or df.empty: logging.warning(f"No data from unified yfinance history for {ticker}."); st.toast(f"⚠️ yfinance no unified history for {ticker}.", icon="⚠️"); return None, None
         required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
         if not all(col in df.columns for col in required_cols):
              logging.warning(f"Missing columns in unified yfinance data for {ticker}. Found: {df.columns.tolist()}. Required: {required_cols}");
-             return None
+             return None, None
         if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
             try: df.index = df.index.tz_convert('America/New_York').tz_localize(None)
             except Exception as tz_err: logging.warning(f"Unified yfinance index tz conversion failed: {tz_err}."); pass
@@ -288,10 +278,9 @@ def get_unified_yfinance_history(ticker: str, period="3y"):
             logging.warning(f"Unified yfinance history for {ticker} has only {len(df)} rows (period={period}). Risk calculations might fail.")
         else:
             logging.info(f"Processed unified yfinance history for {ticker} ({len(df)} rows)")
-        return df['Close'], df[required_cols] # Return Close separately
+        return df['Close'], df[required_cols] # Return Close separately for ETS, full df for risk
     except Exception as e: logging.error(f"General unified yfinance history fetch error for {ticker}: {e}", exc_info=True); st.toast(f"⚠️ Error fetching history data for {ticker}.", icon="❌"); return None, None
 
-# [get_vix_cached function remains the same]
 @st.cache_data(ttl=VIX_CACHE_DURATION_SECONDS)
 def get_vix_cached():
     logging.info("Fetching new VIX value (or using cache)...");
@@ -311,6 +300,7 @@ def get_vix_cached():
             else: logging.warning("VIX history empty.")
         logging.warning("Could not get VIX value."); return None
     except Exception as e: logging.error(f"Error getting VIX: {e}"); logging.debug(traceback.format_exc()); return None
+
 
 # [forecast_stock_ets_advanced function remains the same]
 @st.cache_data(ttl=ETS_FORECAST_CACHE_DURATION_SECONDS)
@@ -779,14 +769,7 @@ def get_risk_category(score):
     except (ValueError, TypeError): logging.error(f"Could not convert risk score '{score}' to float."); return "N/A"
 
 # --- Technical Strategy Functions REMOVED ---
-# def strategy_golden_cross_rsi(...) REMOVED
-# def strategy_macd_rsi_oversold(...) REMOVED
-# def strategy_macd_bullish_adx(...) REMOVED
-# def strategy_adx_heikin_ashi(...) REMOVED
-# def strategy_psar_rsi(...) REMOVED
-
 # --- Strategy Scanning Function REMOVED ---
-# def scan_strategies(...) REMOVED
 
 # [LLM Prompt Formatting functions remain the same]
 def format_stock_data_for_prompt(data):
@@ -874,8 +857,16 @@ def build_nasdaq100_ticker_map(cache_duration_hours=24, force_refresh=False):
                 if len(tables) <= table_index:
                     logging.warning(f"Expected Nasdaq 100 table index {table_index} not found. Auto-finding...")
                     found_table = False
-                    for i, df in enumerate(tables): cols_lower = {str(col).lower() for col in df.columns}; has_ticker = any(t in cols_lower for t in ['ticker', 'symbol']); has_name = any(n in cols_lower for n in ['company', 'name', 'security'])
-                    if has_ticker and has_name and len(df) > 50: nasdaq_table = df; logging.info(f"Found Nasdaq 100 table at index {i}."); found_table = True; break
+                    for i, df in enumerate(tables): # *** CORRECTED BLOCK START ***
+                        cols_lower = {str(col).lower() for col in df.columns}
+                        has_ticker = any(t in cols_lower for t in ['ticker', 'symbol'])
+                        has_name = any(n in cols_lower for n in ['company', 'name', 'security'])
+                        if has_ticker and has_name and len(df) > 50:
+                            nasdaq_table = df
+                            logging.info(f"Found Nasdaq 100 table at index {i}.")
+                            found_table = True
+                            break # *** EXIT THE LOOP ***
+                    # *** CORRECTED BLOCK END ***
                     if not found_table: raise IndexError("Could not find Nasdaq 100 table.")
                 else: nasdaq_table = tables[table_index]; logging.info(f"Using table {table_index} for Nasdaq 100.")
             except Exception as e: logging.error(f"Error reading Nasdaq 100 HTML: {e}."); return None
@@ -971,6 +962,138 @@ def lookup_ticker_by_company_name(query):
         else: logging.info(f"Step 3 FAILED: No suitable EQUITY/ETF found via Fallback Search."); return None
     except Exception as e: logging.warning(f"Step 3 EXCEPTION: Fallback search failed: {e}", exc_info=False); return None
     finally: logging.info(f"=== Finished Ticker Lookup for: '{search_term}' ===")
+
+
+# --- Stock Data Dashboard Function (REMOVED Predictions) ---
+def display_stock_data_dashboard(data, risk_score_value=None, risk_category_str="N/A", news_sentiment_counts=None):
+    """Displays a dashboard summarizing key stock data using Streamlit metrics."""
+    if not data or not data.get('ticker'):
+        st.warning("Cannot display data dashboard - Stock data missing.")
+        return
+    ticker = data['ticker']
+    st.markdown(f"#### Current Data Snapshot for {ticker} - {data.get('companyName', 'N/A')}")
+    st.caption(f"**Type:** {data.get('quoteType', 'N/A')} | **Sector:** {data.get('sector', 'N/A')} | **Industry:** {data.get('industry', 'N/A')}")
+    st.divider()
+
+    # Row 1: Price, Market Cap, Risk
+    col1, col2, col3 = st.columns(3)
+    price_val = format_val(data.get('priceForDisplay'), '$', prec=2)
+    mcap_val = format_val(data.get('marketCap'), '$', prec=2)
+    risk_display_value = f"{risk_score_value:.2f}/100" if risk_score_value is not None else "N/A"
+    with col1: st.metric(label="📈 Price (Yahoo)", value=price_val if price_val != "Not Available" else "Unavailable")
+    with col2: st.metric(label="📊 Market Cap (Yahoo)", value=mcap_val if mcap_val != "Not Available" else "Unavailable")
+    with col3: st.metric(label="⚖️ Risk Score (Model)", value=risk_display_value, help=f"Model calculated risk: {risk_category_str}. See bot response for details.")
+    st.divider()
+
+    # Row 2: Ranges, Volume
+    col4, col5, col6 = st.columns(3)
+    day_low, day_high = format_val(data.get('dayLow'), '$', prec=2), format_val(data.get('dayHigh'), '$', prec=2)
+    daily_range = f"{day_low} - {day_high}" if day_low != "Not Available" and day_high != "Not Available" else "Not Available"
+    year_low, year_high = format_val(data.get('fiftyTwoWeekLow'), '$', prec=2), format_val(data.get('fiftyTwoWeekHigh'), '$', prec=2)
+    year_range = f"{year_low} - {year_high}" if year_low != "Not Available" and year_high != "Not Available" else "Not Available"
+    volume_val = format_val(data.get('volume'), prec=0)
+    with col4: st.metric(label="↕️ Daily Range (Yahoo)", value=daily_range if daily_range != "Not Available" else "Unavailable")
+    with col5: st.metric(label="🗓️ 52W Range (Yahoo)", value=year_range if year_range != "Not Available" else "Unavailable")
+    with col6: st.metric(label="💧 Volume (Yahoo)", value=volume_val if volume_val != "Not Available" else "Unavailable")
+    st.divider()
+
+    # Row 3: SMAs, Beta, P/E or P/S
+    col7, col8, col9 = st.columns(3)
+    sma50_val = format_val(data.get('sma50'), '$', prec=2)
+    sma200_val = format_val(data.get('sma200'), '$', prec=2)
+    beta_val = format_val(data.get('beta'), prec=2)
+    pe_ratio = data.get('trailingPE'); ps_ratio = data.get('priceToSalesTrailing12Months')
+    pe_ps_label = "⚖️ P/E (Trail)"; pe_ps_val = format_val(pe_ratio, prec=2)
+    if pe_ps_val == "Not Available" or (isinstance(pe_ratio, (int, float)) and pe_ratio <= 0 and (ps_ratio is not None and isinstance(ps_ratio, (int, float)) and ps_ratio > 0)):
+         pe_ps_label = "⚖️ P/S (Trail)"; pe_ps_val = format_val(ps_ratio, prec=2)
+    if pe_ps_val == "Not Available" and isinstance(pe_ratio, (int, float)) and pe_ratio < 0:
+         pe_ps_label = "⚖️ P/E (Trail)"; pe_ps_val = format_val(pe_ratio, prec=2)
+    with col7: st.metric(label="📉 50d SMA (Yahoo)", value=sma50_val if sma50_val != "Not Available" else "Unavailable")
+    with col8: st.metric(label="📉 200d SMA (Yahoo)", value=sma200_val if sma200_val != "Not Available" else "Unavailable")
+    with col9: st.metric(label=pe_ps_label, value=pe_ps_val if pe_ps_val != "Not Available" else "Unavailable")
+    st.divider()
+
+    # Row 4: Analyst View
+    st.markdown("#### 🎯 Analyst View (Aggregated: Yahoo Finance)")
+    colA, colB, colC = st.columns(3) # Adjusted columns
+    rec_key = data.get('recommendationKey'); num_opinions = data.get('numberOfAnalystOpinions'); mapped_rec = map_recommendation_key_to_english(rec_key); mean_target_val = format_val(data.get('targetMeanPrice'), '$', prec=2); low_target_val = format_val(data.get('targetLowPrice'), '$', prec=2); high_target_val = format_val(data.get('targetHighPrice'), '$', prec=2)
+    with colA: st.metric(label="⭐ Consensus", value=mapped_rec if mapped_rec not in ["Not Available", "N/A"] else "N/A")
+    with colB: st.metric(label="💲 Avg Target", value=mean_target_val if mean_target_val != "Not Available" else "Unavailable")
+    target_range = f"{low_target_val} - {high_target_val}" if low_target_val != "Not Available" and high_target_val != "Not Available" else "Not Available"
+    with colC: st.metric(label="↕️ Target Range", value=target_range if target_range != "Not Available" else "Unavailable")
+    if num_opinions and isinstance(num_opinions, int) and num_opinions > 0: st.caption(f"Based on {num_opinions} analysts")
+    else: st.caption("Analyst count unavailable")
+    st.divider()
+
+    # Row 5: News Sentiment
+    st.markdown(f"#### 📰 Recent News Sentiment ({NEWS_DAYS_BACK}d - Multi-Source / VADER)")
+    if news_sentiment_counts and news_sentiment_counts.get('total') is not None:
+         colE, colF, colG = st.columns(3)
+         pos_count = news_sentiment_counts.get('positive', 0); neg_count = news_sentiment_counts.get('negative', 0); neut_count = news_sentiment_counts.get('neutral', 0); total_count = news_sentiment_counts.get('total', 0)
+         with colE: st.metric(label="✅ Positive", value=pos_count)
+         with colF: st.metric(label="❌ Negative", value=neg_count)
+         with colG: st.metric(label="➖ Neutral", value=neut_count)
+         if total_count > 0:
+             if pos_count > neg_count + neut_count * 0.5: sentiment_label = "Positive Bias ✅"
+             elif neg_count > pos_count + neut_count * 0.5: sentiment_label = "Negative Bias ❌"
+             else: sentiment_label = "Neutral/Mixed Bias ⚖️"
+             st.caption(f"Overall based on ~{total_count} analyzed articles: **{sentiment_label}**")
+         else: st.caption("No relevant news articles found for analysis.")
+    else: st.info("News sentiment data not available or failed to fetch.")
+    st.divider()
+
+    # Company Info / Links
+    website = data.get('website')
+    if website and website != 'N/A' and 'Not Available' not in website and isinstance(website, str) and '.' in website and len(website)> 5:
+        if not website.startswith('http'): website = 'http://' + website
+        try: st.markdown(f"**Website:** [{website.replace('http://','').replace('https://','')}]({website})")
+        except: st.markdown(f"**Website:** {website}")
+    summary = data.get('longBusinessSummary')
+    if summary and summary != 'N/A' and 'Not Available' not in summary and isinstance(summary, str) and len(summary) > 10:
+        with st.expander("Company Description (Yahoo Finance)"): safe_summary = re.sub(r'<script.*?</script>', '', summary, flags=re.IGNORECASE | re.DOTALL); st.markdown(f'<div dir="auto" style="text-align: left;">{safe_summary}</div>', unsafe_allow_html=True)
+    st.divider();
+    # Updated disclaimer in dashboard footer
+    st.caption(f"*Data: Yahoo Finance (via yfinance), News (NewsAPI, FMP, RSS - {NEWS_DAYS_BACK}d / VADER), Wikipedia, Model Calculations, ETS Forecast. May be delayed. Not financial advice.*")
+
+
+# --- System Prompt (UPDATED: Removed references to Technical Strategy Scan) ---
+SYSTEM_PROMPT = f"""
+You are a helpful financial assistant. Your goal is to provide professional, accessible, and reliable information on topics related to the stock market, stocks, investments, bonds, economics (macro and micro), indices, and more. You have access to:
+1.  Summary stock data from **Yahoo Finance**.
+2.  A calculated Dynamic Risk Score (**Model**).
+3.  A recent News Sentiment summary (**aggregated from NewsAPI, FMP, and RSS feeds over the last {NEWS_DAYS_BACK} days, analyzed using VADER**).
+4.  A short-term price forecast (**calculated using an ETS model on historical Yahoo Finance daily data**).
+    (Note: Technical Strategy Signals are NO LONGER calculated or available).
+
+Important Guidelines:
+1.  Always answer in clear and concise English only, with correct punctuation.
+2.  Speak in an accessible, friendly, yet professional manner. Explain complex terms in simple language.
+3.  **Do not provide direct investment recommendations. Use an appropriate emoji naturally in your response, aiming for at least one if suitable.**
+4.  **Prioritize using the data provided in the context.** Integrate data from **Yahoo Finance** for fundamentals and analyst views. Incorporate the provided **Model** Risk Score. Use the **Multi-Source News Sentiment (VADER analysis)** summary. Use the **ETS Forecast** data.
+5.  If presented with current data, incorporate it naturally. State the source for each piece of data clearly: **Yahoo Finance** for fundamentals/analyst views, **Multi-Source News/VADER** for news sentiment, **ETS Model (Calculated)** for the forecast, and **'Model'** for the risk score.
+6.  If asked about a specific ticker, **structure your answer logically:**
+    a. Brief intro to the company.
+    b. Summary of key current data points from **Yahoo Finance** **using ONLY the data provided in the context.**
+    c. Analyst consensus from **Yahoo Finance** **using the exact format from Guideline #9 AND ONLY the data provided in the context.**
+    d. **Dynamic Risk Score:** State the calculated score and its category (e.g., 'Risk Score (Model): 65.25/100 (⚠️ High Risk)') **exactly as provided in the context.** If the context says it's 'Could not calculate' or similar, state that clearly.
+    e. **Recent News Sentiment Summary:** Present the news sentiment summary **exactly as provided in the context (sourced from Multi-Source News/VADER over {NEWS_DAYS_BACK} days).** Mention the counts (positive, negative, neutral) and the overall bias if available. State this reflects *recent* news articles.
+    f. **ETS Price Forecast:** Present the calculated forecast **exactly as provided in the context.** Mention the forecast period (e.g., "next 7 days"), the model used (e.g., "ETS Model"), and include the evaluation summary (RMSE/MAPE) if available. State this is a model-based forecast and not a guarantee. If the forecast is 'Unavailable' or there was an error, state that clearly.
+    g. (Optional) Brief general context relative to its sector/industry (based on your background knowledge, state it's general context).
+    h. Concluding reminder about limitations and avoiding recommendations.
+7.  **CRITICAL DATA HANDLING:** If the context for a data point (Price, Market Cap, Analyst Rec, Risk Score, News Sentiment Summary, **ETS Forecast**) explicitly states 'Not Available', 'Could not fetch', 'Error during scan', 'Could not calculate', 'Insufficient data', 'API error', 'No relevant news articles found', 'Unavailable', 'Model Error', etc., **you MUST state that the specific information is unavailable. DO NOT substitute from your internal knowledge.** Report what's available and clearly state what's missing. Technical Strategy Signals are always unavailable.
+8.  Format numbers readably in English, **rounding to two decimal places** for currency and percentage values unless they represent counts or whole numbers like volume or shares. Use the format: "$123.45" or "5.67%". Market Cap can use B/T suffix, rounded to two decimals, e.g., "$770.52B".
+9.  **Regarding analyst data:** When analyst data (*is* provided in the context: numberOfAnalystOpinions, recommendationKey, targetMeanPrice, etc.), **use this exact format, including analyst count if available (not 'Not Available' or 0):** 'According to aggregated data from Yahoo Finance, based on [X] analysts, the prevailing recommendation is [recommendation], and the average 12-month target price is [average price], ranging from [low price] to [high price].' Emphasize this data comes from aggregated sources via **Yahoo Finance**. **Do not omit the analyst count if provided.** If analyst data is 'Not Available', state that.
+10. Be aware of limitations. Your knowledge is based on training data and provided context. Financial data is informational. **Price charts are not displayed.**
+11. **Do NOT mention technical strategy scans or signals**, as this feature has been removed. If the user asks to "scan" a ticker, explain that technical strategy scanning is not available, but you can provide other available information like risk score, news sentiment, and forecast.
+12. **About the Risk Score (if asked or when presenting it):** The 'Risk Score (Model)' provided in the context is calculated based on a combination of factors including historical volatility, downside risk (semi-deviation, CVaR, CDaR, GMD, MDD), valuation metrics (P/E or P/S), liquidity, market conditions (VIX), price momentum (vs. SMA), market sensitivity (Beta), and balance sheet quality (Piotroski F-score). Each factor is scored (0-100, higher score = higher risk for that factor) and weighted to produce a final score (0-100).
+    *   **Interpretation:** Scores >= 65 suggest ⚠️ High Risk, 50-64 suggest ⚖️ Medium Risk, and < 50 suggest ✅ Relatively Lower Risk *according to this specific model*. It is NOT a prediction or guarantee.
+13. **About News Sentiment (if asked or when presenting it):** The Recent News Sentiment summary provided in the context comes from **multiple sources (NewsAPI, FMP, RSS) over the last {NEWS_DAYS_BACK} days.** Sentiment (positive, negative, neutral) is determined by **VADER analysis** of article headlines and descriptions/summaries.
+    *   **Interpretation:** This gives a snapshot of the *tone* of recent news coverage based on the VADER algorithm. A 'Positive Bias' means more articles scored positive than negative (heuristically determined), and vice-versa for 'Negative Bias'. 'Neutral/Mixed Bias' indicates a balance. It reflects the *sentiment expressed in the text*, not necessarily the factual impact of the news. Use it as a gauge of recent news flow tone. **It is NOT a prediction.**
+14. **About ETS Forecasting (if asked or when presenting it):** The ETS Price Forecast provided in the context is generated using the **Exponential Smoothing (ETS) statistical model** on historical daily closing prices from **Yahoo Finance**.
+    *   **Methodology:** The model (typically Holt-Winters) attempts to capture trend and seasonality (if detected based on recent volatility) in the historical price data to project future values. It might be evaluated against recent data (RMSE/MAPE provided) to gauge its past accuracy on that specific stock.
+    *   **Interpretation:** This is a **statistical forecast**, not a prediction based on news, fundamentals, or external events. It essentially extrapolates patterns observed in past price movements. **It is NOT financial advice and has inherent limitations.** Market conditions can change unexpectedly, making any forecast uncertain. Use it as *one* technical data point, considering its potential inaccuracy (indicated by RMSE/MAPE if available).
+
+"""
 
 
 # --- Load Combined Ticker Map ---
@@ -1086,8 +1209,12 @@ if user_input_triggered:
             else:
                 logging.info(f"Could not validate/find equity/ETF ticker for '{lookup_query}'.")
                 if len(lookup_query) > 1:
-                     if is_potential_ticker or len(lookup_query.split()) > 1 or len(lookup_query) > 4: # Adjusted check
-                         st.toast(f"Couldn't find stock/ETF matching '{lookup_query}'.", icon="⚠️")
+                     # Use is_potential_ticker defined earlier in the lookup function logic
+                     if lookup_ticker_by_company_name.__closure__ and lookup_ticker_by_company_name.__closure__[0].cell_contents.get('is_potential_ticker'): # Check if it looked like a ticker initially
+                        st.toast(f"Couldn't find stock/ETF matching '{lookup_query}'.", icon="⚠️")
+                     elif len(lookup_query.split()) > 1 or len(lookup_query) > 4: # If it was a longer query (likely name)
+                        st.toast(f"Couldn't find stock/ETF matching '{lookup_query}'.", icon="⚠️")
+
                 primary_ticker = None
         else: logging.info("No lookup query."); primary_ticker = None
 
