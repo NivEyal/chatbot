@@ -84,7 +84,7 @@ ETS_FORECAST_CACHE_DURATION_SECONDS = 1800 # Cache ETS forecast results for 30 m
 
 # --- API Key Loading (HARDCODED as requested - NOT RECOMMENDED FOR SECURITY) ---
 # WARNING: Exposing API keys like this is highly insecure. Use environment variables or secrets management.
-OPENAI_API_KEY = "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" # Replace with your actual key
+OPENAI_API_KEY = "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" # Replace with your actual key
 NEWS_API_KEY = 'd76a502fa00946bfae52c439094dd578' # Replace with your actual key
 FMP_API_KEY = 'yZ8fSVddKFjMZH722j8ABVX9qjCUKbgF' # Replace with your actual key
 # --- End of Hardcoded API Keys ---
@@ -142,14 +142,14 @@ except ImportError:
         def denoiseCov(*args, **kwargs): raise NotImplementedError("Riskfolio not available")
     class db:
          @staticmethod
-         def PMFG_T2s(*args, **kwargs): raise NotImplementedError("Riskfolio not available")
+         def PMFG_T2s(*args, **kwargs): raise NotImplementedError("Rifolio not available")
          @staticmethod
-         def j_LoGo(*args, **kwargs): raise NotImplementedError("Riskfolio not available")
+         def j_LoGo(*args, **kwargs): raise NotImplementedError("Rifolio not available")
     class gs:
          @staticmethod
-         def gerber_cov_stat1(*args, **kwargs): raise NotImplementedError("Riskfolio not available")
+         def gerber_cov_stat1(*args, **kwargs): raise NotImplementedError("Rifolio not available")
          @staticmethod
-         def gerber_cov_stat2(*args, **kwargs): raise NotImplementedError("Riskfolio not available")
+         def gerber_cov_stat2(*args, **kwargs): raise NotImplementedError("Rifolio not available")
     def _fallback_SemiDeviation(X):
         a = np.array(X, ndmin=1).flatten();
         if len(a) < 2: return np.nan
@@ -167,19 +167,19 @@ except ImportError:
     def _fallback_owa_gmd(T): T_ = int(T); w_ = [2*i - 1 - T_ for i in range(1, T_ + 1)]; return (2 * np.array(w_) / max(1, T_ * (T_ - 1))).reshape(-1, 1)
     class rk: SemiDeviation = staticmethod(_fallback_SemiDeviation); CDaR_Abs = staticmethod(_fallback_CDaR_Abs)
     class owa: owa_gmd = staticmethod(_fallback_owa_gmd)
-    logging.warning("Disabling Riskfolio factors: semi_deviation, cdar, gmd.")
+    logging.warning("Disabling Rifolio factors: semi_deviation, cdar, gmd.")
     DEFAULT_WEIGHTS['semi_deviation'] = 0.00; DEFAULT_WEIGHTS['cdar'] = 0.00; DEFAULT_WEIGHTS['gmd'] = 0.00
     total_w = sum(DEFAULT_WEIGHTS.values());
     if total_w > 0: DEFAULT_WEIGHTS = {k: v / total_w for k, v in DEFAULT_WEIGHTS.items()}
-    else: logging.error("All risk weights zero after disabling Riskfolio!")
+    else: logging.error("All ri weights zero after disabling Rifolio!")
 
 
 # --- Streamlit Page Config ---
-st.set_page_config(page_title="📈 Financial Chat + Risk + News + Forecasting", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="📈 Financial Chat + Ri + News + Forecasting", layout="wide", initial_sidebar_state="expanded")
 
 # --- API Key Validation ---
 missing_keys = []
-if not OPENAI_API_KEY or not OPENAI_API_KEY.startswith("sk-"):
+if not OPENAI_API_KEY or not OPENAI_API_KEY.startswith("-"):
     missing_keys.append("OpenAI API Key")
 if not NEWS_API_KEY or len(NEWS_API_KEY) < 20:
     missing_keys.append("NewsAPI Key")
@@ -275,10 +275,10 @@ def get_unified_yfinance_history(ticker: str, period="3y"):
         elif not isinstance(df.index, pd.DatetimeIndex): logging.warning(f"Unified yfinance index for {ticker} not DatetimeIndex.")
         min_rows_needed = 252
         if len(df) < min_rows_needed:
-            logging.warning(f"Unified yfinance history for {ticker} has only {len(df)} rows (period={period}). Risk calculations might fail.")
+            logging.warning(f"Unified yfinance history for {ticker} has only {len(df)} rows (period={period}). Ri calculations might fail.")
         else:
             logging.info(f"Processed unified yfinance history for {ticker} ({len(df)} rows)")
-        return df['Close'], df[required_cols] # Return Close separately for ETS, full df for risk
+        return df['Close'], df[required_cols] # Return Close separately for ETS, full df for ri
     except Exception as e: logging.error(f"General unified yfinance history fetch error for {ticker}: {e}", exc_info=True); st.toast(f"⚠️ Error fetching history data for {ticker}.", icon="❌"); return None, None
 
 @st.cache_data(ttl=VIX_CACHE_DURATION_SECONDS)
@@ -374,7 +374,7 @@ def analyze_sentiment_vader(text):
     return sentiment, compound_score
 def get_news_newsapi(ticker, api_key, days_back=NEWS_DAYS_BACK, page_size=NEWS_PAGE_SIZE):
     logging.info(f"[News] Fetching news from NewsAPI for '{ticker}'...")
-    if not api_key or len(api_key) < 20: logging.warning("[News] NewsAPI key not set or seems invalid. Skipping NewsAPI."); return []
+    if not api_key or len(api_key) < 20: logging.warning("[News] NewsAPI key not set or seems invalid. ipping NewsAPI."); return []
     to_date = datetime.now(); from_date = to_date - timedelta(days=days_back); from_date_str = from_date.strftime('%Y-%m-%d')
     query = f'"{ticker}" AND (stock OR shares OR earnings OR market OR business)'; params = { 'q': query, 'apiKey': api_key, 'from': from_date_str, 'sortBy': 'relevancy', 'language': 'en', 'pageSize': min(page_size, 100), }
     try:
@@ -397,7 +397,7 @@ def get_news_newsapi(ticker, api_key, days_back=NEWS_DAYS_BACK, page_size=NEWS_P
     except Exception as e: logging.error(f"[News] An unexpected error occurred with NewsAPI: {e}", exc_info=True); return []
 def get_news_fmp(ticker, api_key, limit=NEWS_FMP_LIMIT):
     logging.info(f"[News] Fetching news from Financial Modeling Prep for '{ticker}'...")
-    if not api_key or len(api_key) < 20: logging.warning("[News] FMP API key not set or seems invalid. Skipping FMP."); return []
+    if not api_key or len(api_key) < 20: logging.warning("[News] FMP API key not set or seems invalid. ipping FMP."); return []
     fmp_news_url = f"{FMP_ENDPOINT}/v3/stock_news"; params = {'tickers': ticker, 'limit': limit, 'apikey': api_key}
     try:
         response = requests.get(fmp_news_url, params=params, timeout=15)
@@ -452,7 +452,7 @@ def get_news_rss(ticker, feed_urls, days_back=NEWS_DAYS_BACK):
                 mentions_ticker = bool(re.search(pattern, title_lower) or re.search(pattern, summary_lower))
                 if is_ticker_specific_feed or (needs_ticker_mention and mentions_ticker):
                      all_rss_articles.append({ 'title': title, 'description': summary, 'url': link, 'publishedAt': parsed_date_iso or 'N/A', 'source_api': 'RSS', 'source_name': feed_data.feed.get('title', url) })
-                elif needs_ticker_mention and not mentions_ticker: logging.debug(f"[News]     RSS Skipping (General Feed, No Ticker Match): {title[:50]}...")
+                elif needs_ticker_mention and not mentions_ticker: logging.debug(f"[News]     RSS ipping (General Feed, No Ticker Match): {title[:50]}...")
         except Exception as e: logging.error(f"[News]     Error processing RSS feed {url}: {e}")
         time.sleep(0.2)
     logging.info(f"[News] RSS Feeds: Found {len(all_rss_articles)} potentially relevant articles within date range."); return all_rss_articles
@@ -494,7 +494,7 @@ def get_multi_source_news_sentiment(ticker: str, news_api_key: str, fmp_api_key:
     logging.info(f"[News] Multi-source sentiment analysis for {ticker} completed in {end_time - start_time:.2f} sec."); logging.info(f"[News] Result: P={positive_count}, N={negative_count}, Neut={neutral_count}, AvgScore={avg_score:.3f}"); return summary_str, counts
 # --- END: MULTI-SOURCE NEWS SENTIMENT FUNCTIONS ---
 
-# --- Other Helper Functions (Piotroski, Normalization, etc.) ---
+# --- Other Helper Functions (Piotroi, Normalization, etc.) ---
 # [get_financial_data, safe_get, get_stock_beta, normalize_score, calculate_sma, calculate_mdd functions remain the same]
 def get_financial_data(ticker_obj, statement_type: str, periods: int = 2):
     try:
@@ -524,18 +524,18 @@ def get_stock_beta(ticker_info: dict):
         try: beta = float(beta)
         except (ValueError, TypeError): beta = None
     return beta
-def normalize_score(value, range_min, range_max, higher_is_riskier=True, is_log_range=False):
+def normalize_score(value, range_min, range_max, higher_is_riier=True, is_log_range=False):
     if value is None or pd.isna(value): return 50.0
     current_min, current_max = range_min, range_max; value_to_norm = value
     if is_log_range:
         if value > 1e-9:
             try: value_to_norm = np.log10(value); logging.debug(f"Normalize Log: {value:.2f} -> {value_to_norm:.2f}")
             except Exception as e: logging.warning(f"Log10 failed: {e}. Using original."); value_to_norm = value;
-        else: return 0.0 if higher_is_riskier else 100.0
+        else: return 0.0 if higher_is_riier else 100.0
     if abs(current_max - current_min) < 1e-9: return 50.0
     clipped_value = np.clip(value_to_norm, current_min, current_max)
     normalized = (clipped_value - current_min) / (current_max - current_min)
-    risk_score = np.clip(normalized * 100 if higher_is_riskier else (1 - normalized) * 100, 0, 100)
+    ri_score = np.clip(normalized * 100 if higher_is_riier else (1 - normalized) * 100, 0, 100)
     logging.debug(f"Normalize: Val={value:.2f}, Range=({range_min:.2f},{range_max:.2f}), Log={is_log_range}, HigherRisk={higher_is_riskier} => Score={risk_score:.2f}")
     return risk_score
 def calculate_sma(data: pd.Series, window: int):
