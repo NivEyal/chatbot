@@ -84,7 +84,7 @@ ETS_FORECAST_CACHE_DURATION_SECONDS = 1800 # Cache ETS forecast results for 30 m
 
 # --- API Key Loading (HARDCODED as requested - NOT RECOMMENDED FOR SECURITY) ---
 # WARNING: Exposing API keys like this is highly insecure. Use environment variables or secrets management.
-OPENAI_API_KEY = "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" # Replace with your actual key
+OPENAI_API_KEY = "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" # Replace with your actual key
 NEWS_API_KEY = 'd76a502fa00946bfae52c439094dd578' # Replace with your actual key
 FMP_API_KEY = 'yZ8fSVddKFjMZH722j8ABVX9qjCUKbgF' # Replace with your actual key
 # --- End of Hardcoded API Keys ---
@@ -204,7 +204,7 @@ try: client = OpenAI(api_key=OPENAI_API_KEY); logging.info("Initialized OpenAI c
 except Exception as e: st.error(f"Error initializing OpenAI client: {e}"); logging.error(f"Initialization Error: {e}", exc_info=True); st.stop()
 
 # --- Global Settings ---
-MODEL_NAME = "gpt-4o"; MAX_TOKENS = 1200; TEMPERATURE = 0.5
+MODEL_NAME = "gpt-4.1"; MAX_TOKENS = 1200; TEMPERATURE = 0.5
 
 # --- Helper Functions (Including Date Parsing) ---
 def parse_date(date_string):
