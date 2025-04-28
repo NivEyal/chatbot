@@ -81,28 +81,55 @@ HISTORY_CACHE_DURATION_SECONDS = 300 # Cache unified history for 5 mins
 NEWS_SENTIMENT_CACHE_DURATION_SECONDS = 1800 # Cache combined news sentiment for 30 mins
 ETS_FORECAST_CACHE_DURATION_SECONDS = 1800 # Cache ETS forecast results for 30 mins
 
+import os
 
-# --- API Key Loading (HARDCODED as requested - NOT RECOMMENDED FOR SECURITY) ---
-# WARNING: Exposing API keys like this is highly insecure. Use environment variables or secrets management.
-OPENAI_API_KEY = "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" # Replace with your actual key
-NEWS_API_KEY = 'd76a502fa00946bfae52c439094dd578' # Replace with your actual key
-FMP_API_KEY = 'yZ8fSVddKFjMZH722j8ABVX9qjCUKbgF' # Replace with your actual key
-# --- End of Hardcoded API Keys ---
+import os
+import logging
+import streamlit as st
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+# --- Load API Keys from Streamlit Secrets ---
+OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+NEWS_API_KEY = st.secrets["NEWS_API_KEY"]
+FMP_API_KEY = st.secrets["FMP_API_KEY"]
 
 # --- NEWS SENTIMENT Configuration ---
 NEWS_API_ENDPOINT = 'https://newsapi.org/v2/everything'
 FMP_ENDPOINT = 'https://financialmodelingprep.com/api'
 RSS_FEEDS = [
-    'https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US', # Yahoo Finance Ticker Specific
-    'https://www.reuters.com/pf/reuters/us/rss/technologySector', # Reuters Tech
-    'http://feeds.marketwatch.com/marketwatch/topstories/', # MarketWatch Top Stories
-    'https://www.cnbc.com/id/19854910/device/rss/rss.html', # CNBC Top News (needs filtering)
-    'https://seekingalpha.com/feed.xml' # Seeking Alpha Top News (needs filtering)
+    'https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US',
+    'https://www.reuters.com/pf/reuters/us/rss/technologySector',
+    'http://feeds.marketwatch.com/marketwatch/topstories/',
+    'https://www.cnbc.com/id/19854910/device/rss/rss.html',
+    'https://seekingalpha.com/feed.xml'
 ]
-NEWS_DAYS_BACK = 7 # How many days back to fetch news
-NEWS_PAGE_SIZE = 30 # Articles per API source (max 100 for NewsAPI)
-NEWS_FMP_LIMIT = 30 # Limit for FMP news
-NEWS_MAX_ARTICLES_DISPLAY = 50 # Max articles to process after combining/deduplicating
+NEWS_DAYS_BACK = 7
+NEWS_PAGE_SIZE = 30
+NEWS_FMP_LIMIT = 30
+NEWS_MAX_ARTICLES_DISPLAY = 50
+
+# --- Sentiment Analyzer Global Instance ---
+vader_analyzer = SentimentIntensityAnalyzer()
+
+# --- Streamlit Page Config ---
+st.set_page_config(page_title="📈 Financial Chat + Risk + News + Forecasting", layout="wide", initial_sidebar_state="expanded")
+
+# --- API Key Validation ---
+missing_keys = []
+if not OPENAI_API_KEY or not OPENAI_API_KEY.startswith("sk-"):
+    missing_keys.append("OpenAI API Key")
+if not NEWS_API_KEY or len(NEWS_API_KEY) < 20:
+    missing_keys.append("NewsAPI Key")
+if not FMP_API_KEY or len(FMP_API_KEY) < 20:
+    missing_keys.append("Financial Modeling Prep (FMP) API Key")
+
+if missing_keys:
+    keys_str = ', '.join(missing_keys)
+    st.error(f"❌ Invalid or missing API keys: {keys_str}. Please check the `.streamlit/secrets.toml` file.")
+    logging.error(f"API keys invalid or missing: {keys_str}")
+    st.stop()
+else:
+    logging.info("✅ OpenAI, NewsAPI & FMP API Keys loaded successfully.")
 
 # VADER Sentiment Analyzer (Global Instance)
 vader_analyzer = SentimentIntensityAnalyzer()
@@ -174,29 +201,7 @@ except ImportError:
     else: logging.error("All ri weights zero after disabling Rifolio!")
 
 
-# --- Streamlit Page Config ---
-st.set_page_config(page_title="📈 Financial Chat + Ri + News + Forecasting", layout="wide", initial_sidebar_state="expanded")
 
-# --- API Key Validation ---
-missing_keys = []
-if not OPENAI_API_KEY or not OPENAI_API_KEY.startswith("-"):
-    missing_keys.append("OpenAI API Key")
-if not NEWS_API_KEY or len(NEWS_API_KEY) < 20:
-    missing_keys.append("NewsAPI Key")
-if not FMP_API_KEY or len(FMP_API_KEY) < 20:
-    missing_keys.append("Financial Modeling Prep (FMP) API Key")
-
-if missing_keys:
-    keys_str = ', '.join(missing_keys)
-    st.error(f"❌ Invalid or missing API keys: {keys_str}. Please check the hardcoded values.");
-    logging.error(f"API keys invalid or missing: {keys_str}");
-    if "OpenAI API Key" in missing_keys: st.stop()
-    else:
-         if "NewsAPI Key" in missing_keys: logging.warning("NewsAPI key missing/invalid, News Sentiment may be limited.")
-         if "FMP API Key" in missing_keys: logging.warning("FMP API key missing/invalid, News Sentiment may be limited.")
-else:
-    logging.info("OpenAI, NewsAPI & FMP API Keys seem present.")
-    logging.warning("Reminder: API Keys are hardcoded in this script, which is insecure.")
 
 
 # --- Initialize Clients ---
@@ -524,20 +529,54 @@ def get_stock_beta(ticker_info: dict):
         try: beta = float(beta)
         except (ValueError, TypeError): beta = None
     return beta
-def normalize_score(value, range_min, range_max, higher_is_riier=True, is_log_range=False):
-    if value is None or pd.isna(value): return 50.0
-    current_min, current_max = range_min, range_max; value_to_norm = value
+def normalize_score(value, range_min, range_max, higher_is_riskier=True, is_log_range=False):
+    """Normalizes a raw value to a 0-100 risk score based on a defined range."""
+    if value is None or pd.isna(value):
+        logging.debug(f"Normalize: Input value is None/NaN, returning default 50.0")
+        return 50.0 # Return neutral score if data is missing
+
+    current_min, current_max = range_min, range_max
+    value_to_norm = float(value) # Ensure it's a float
+
     if is_log_range:
-        if value > 1e-9:
-            try: value_to_norm = np.log10(value); logging.debug(f"Normalize Log: {value:.2f} -> {value_to_norm:.2f}")
-            except Exception as e: logging.warning(f"Log10 failed: {e}. Using original."); value_to_norm = value;
-        else: return 0.0 if higher_is_riier else 100.0
-    if abs(current_max - current_min) < 1e-9: return 50.0
+        if value_to_norm > 1e-9: # Avoid log(0) or log(negative)
+            try:
+                # Ensure min/max for log range are also positive before logging
+                safe_range_min = max(1e-9, current_min)
+                safe_range_max = max(1e-9, current_max)
+                value_to_norm = np.log10(value_to_norm)
+                current_min = np.log10(safe_range_min)
+                current_max = np.log10(safe_range_max)
+                logging.debug(f"Normalize Log: {value:.2f} -> {value_to_norm:.2f} (Range: {current_min:.2f} to {current_max:.2f})")
+            except (ValueError, TypeError, OverflowError) as e:
+                logging.warning(f"Log10 failed for value {value} or range ({range_min}, {range_max}): {e}. Using original value.")
+                value_to_norm = float(value) # Revert to original float value
+                current_min, current_max = range_min, range_max # Revert range
+                # Need to decide how to handle this - maybe return 50? or proceed with linear? Let's proceed linearly.
+        else:
+             # Value is zero or negative, can't take log. Assign edge score.
+             edge_score = 0.0 if higher_is_riskier else 100.0
+             logging.debug(f"Normalize Log: Value {value:.2f} <= 0, assigning edge score {edge_score}")
+             return edge_score
+
+    # Check for invalid range after potential log transformation
+    if abs(current_max - current_min) < 1e-9:
+        logging.warning(f"Normalize: Range min {current_min:.2f} and max {current_max:.2f} are too close. Returning 50.0")
+        return 50.0 # Avoid division by zero if range is negligible
+
+    # Clip the value to be within the (potentially log-transformed) range
     clipped_value = np.clip(value_to_norm, current_min, current_max)
+
+    # Perform normalization
     normalized = (clipped_value - current_min) / (current_max - current_min)
-    ri_score = np.clip(normalized * 100 if higher_is_riier else (1 - normalized) * 100, 0, 100)
-    logging.debug(f"Normalize: Val={value:.2f}, Range=({range_min:.2f},{range_max:.2f}), Log={is_log_range}, HigherRisk={higher_is_riskier} => Score={risk_score:.2f}")
-    return risk_score
+
+    # Apply risk direction (higher is riskier or lower is riskier)
+    # Calculate ri_score based on higher_is_riskier flag
+    ri_score = np.clip(normalized * 100 if higher_is_riskier else (1 - normalized) * 100, 0, 100)
+
+    logging.debug(f"Normalize: Val={value:.4f} (NormVal={value_to_norm:.4f}), Range=({range_min:.4f},{range_max:.4f}), Log={is_log_range}, HigherRisk={higher_is_riskier} => Clipped={clipped_value:.4f}, Normalized={normalized:.4f}, Score={ri_score:.2f}")
+    return ri_score
+
 def calculate_sma(data: pd.Series, window: int):
     if data is None or data.empty or len(data) < window: return None
     try: return data.rolling(window=window).mean().iloc[-1]
@@ -645,120 +684,318 @@ def calculate_owa_risk(returns: pd.Series, owa_weights_func, **kwargs):
     except Exception as e: logging.error(f"Error in OWA risk ({owa_weights_func.__name__}): {e}"); logging.debug(traceback.format_exc()); return None
 @st.cache_data(ttl=600)
 def calculate_dynamic_risk_score(ticker_symbol: str, hist_df: pd.DataFrame, weights: dict = None, cov_method: str = 'hist', vol_window: int = 90):
-    try:
-        logging.info(f"[{ticker_symbol}] Risk score func: Using pre-fetched history. Fetching yfinance info..."); ticker = yf.Ticker(ticker_symbol);
-        try: info = ticker.info;
-        except Exception as info_err: logging.warning(f"[{ticker_symbol}] Risk score: Info fetch failed: {info_err}."); info = None
-        if hist_df is None or hist_df.empty or 'Close' not in hist_df.columns: logging.error(f"[{ticker_symbol}] FAILED Risk Score: Invalid/Empty FULL history DataFrame provided."); return None, {}, 0.0
-        if info is None and not hist_df.empty: info = {'symbol': ticker_symbol, 'quoteType': 'EQUITY', 'currentPrice': hist_df['Close'].iloc[-1]}; logging.info(f"[{ticker_symbol}] Reconstructed minimal info for risk calc.")
-        elif info is None: logging.error(f"[{ticker_symbol}] FAILED Risk Score: No valid info or history."); return None, {}, 0.0
-        returns_1y = hist_df['Close'].pct_change().dropna(); logging.info(f"[{ticker_symbol}] Risk score: Valid return rows for risk: {len(returns_1y)}")
-        min_returns_needed_advanced_risk = max(vol_window, int(np.ceil(1 / CVAR_ALPHA)) + 5); can_calc_advanced_risk = len(returns_1y) >= min_returns_needed_advanced_risk
-        if not can_calc_advanced_risk: logging.warning(f"[{ticker_symbol}] Insufficient returns ({len(returns_1y)} < {min_returns_needed_advanced_risk}) for advanced risk calcs (CVaR, CDaR, GMD).")
-        last_price = hist_df['Close'].iloc[-1] if not hist_df.empty else info.get('currentPrice', info.get('regularMarketPrice')); vix_value = get_vix_cached()
-    except Exception as e: logging.error(f"[{ticker_symbol}] FAILED Risk Score during setup/info fetch: {e}", exc_info=True); return None, {}, 0.0
-    current_weights = weights if weights is not None else DEFAULT_WEIGHTS.copy(); intermediate_scores = {}; available_factors_weight = 0.0
-    # Volatility
-    vol = None; vol_ann = None; vol_score = None
-    if len(returns_1y) >= vol_window:
-        try: returns_for_vol = returns_1y.tail(vol_window); returns_df = returns_for_vol.to_frame(name=ticker_symbol); cov_mat = covar_matrix(returns_df, method=cov_method)
-        except Exception as e: logging.error(f"[{ticker_symbol}] Volatility setup/cov error: {e}"); cov_mat = None
-        if cov_mat is not None and not cov_mat.empty:
-            try: variance = cov_mat.iloc[0, 0];
-            except IndexError: logging.error(f"[{ticker_symbol}] Covariance matrix index error."); variance = None
-            if variance is not None and pd.notna(variance) and variance >= 0: vol = np.sqrt(variance); vol_ann = vol * np.sqrt(252)
-            else: logging.warning(f"[{ticker_symbol}] Variance calc invalid: {variance}")
-        else: logging.warning(f"[{ticker_symbol}] Cov matrix None/empty for '{cov_method}'.")
-    else: logging.warning(f"[{ticker_symbol}] Volatility calc skipped: insufficient returns ({len(returns_1y)} < {vol_window}).")
-    if vol_ann is not None: vol_score = normalize_score(vol_ann, VOLATILITY_RANGE[0], VOLATILITY_RANGE[1], True); intermediate_scores['volatility'] = vol_score; available_factors_weight += current_weights.get('volatility', 0); logging.info(f"[{ticker_symbol}] Volatility ({cov_method}, ann.): {vol_ann:.4f} -> Score: {vol_score:.2f}")
-    else: intermediate_scores['volatility'] = None
-    # Semi Deviation
-    semi_dev = None; semi_dev_score = None
-    if len(returns_1y) >= 2 and current_weights.get('semi_deviation', 0) > 1e-6:
-         try: semi_dev_daily = rk.SemiDeviation(returns_1y.values);
-         except Exception as e: logging.error(f"[{ticker_symbol}] SemiDeviation error: {e}", exc_info=True); semi_dev_daily = None
-         if semi_dev_daily is not None and pd.notna(semi_dev_daily): semi_dev = semi_dev_daily * np.sqrt(252)
-         else: logging.warning(f"[{ticker_symbol}] SemiDeviation daily calc None/NaN.")
-    else: logging.warning(f"[{ticker_symbol}] SemiDeviation calc skipped.")
-    if semi_dev is not None: semi_dev_score = normalize_score(semi_dev, SEMIDEV_RANGE[0], SEMIDEV_RANGE[1], True); intermediate_scores['semi_deviation'] = semi_dev_score; available_factors_weight += current_weights.get('semi_deviation', 0); logging.info(f"[{ticker_symbol}] Semi Deviation (ann.): {semi_dev:.4f} -> Score: {semi_dev_score:.2f}")
-    else: intermediate_scores['semi_deviation'] = None
-    # Market Cap
-    market_cap_raw = info.get('marketCap'); mcap_score = None
-    if market_cap_raw is not None and isinstance(market_cap_raw, (int, float)) and market_cap_raw > 0: mcap_score = normalize_score(market_cap_raw, MARKET_CAP_RANGE_LOG[0], MARKET_CAP_RANGE_LOG[1], False, True); intermediate_scores['market_cap'] = mcap_score; available_factors_weight += current_weights.get('market_cap', 0); logging.info(f"[{ticker_symbol}] Market Cap: {market_cap_raw:,.0f} -> Score: {mcap_score:.2f}")
-    else: intermediate_scores['market_cap'] = None; logging.warning(f"[{ticker_symbol}] Market Cap unavailable: {market_cap_raw}")
-    # Liquidity
-    volume_raw = info.get('averageDailyVolume10Day', info.get('averageVolume', info.get('regularMarketVolume'))); liquidity_score = None
-    if volume_raw is not None and isinstance(volume_raw, (int, float)) and volume_raw > 0: liquidity_score = normalize_score(volume_raw, VOLUME_RANGE_LOG[0], VOLUME_RANGE_LOG[1], False, True); intermediate_scores['liquidity'] = liquidity_score; available_factors_weight += current_weights.get('liquidity', 0); logging.info(f"[{ticker_symbol}] Avg Volume: {volume_raw:,.0f} -> Score: {liquidity_score:.2f}")
-    else: intermediate_scores['liquidity'] = None; logging.warning(f"[{ticker_symbol}] Avg Volume unavailable: {volume_raw}")
-    # PE/PS
-    pe_ratio = info.get('trailingPE'); ps_ratio = info.get('priceToSalesTrailing12Months'); valuation_score = None
-    if pe_ratio is not None and isinstance(pe_ratio, (int, float)) and pd.notna(pe_ratio):
-        if pe_ratio > 0: valuation_score = normalize_score(pe_ratio, PE_RATIO_RANGE[0], PE_RATIO_RANGE[1], True); logging.info(f"[{ticker_symbol}] Using PE: {pe_ratio:.2f} -> Score: {valuation_score:.2f}")
-        elif pe_ratio < 0: valuation_score = 100.0; logging.info(f"[{ticker_symbol}] Negative PE -> Score: 100.00")
-        else: logging.warning(f"[{ticker_symbol}] PE is zero.")
-    elif ps_ratio is not None and isinstance(ps_ratio, (int, float)) and pd.notna(ps_ratio) and ps_ratio > 0: valuation_score = normalize_score(ps_ratio, PS_RATIO_RANGE[0], PS_RATIO_RANGE[1], True); logging.info(f"[{ticker_symbol}] Using P/S: {ps_ratio:.2f} -> Score: {valuation_score:.2f}")
-    else: logging.warning(f"[{ticker_symbol}] No valid PE/PS (PE: {pe_ratio}, PS: {ps_ratio})."); valuation_score = None
-    if valuation_score is not None: intermediate_scores['pe_or_ps'] = valuation_score; available_factors_weight += current_weights.get('pe_or_ps', 0)
-    else: intermediate_scores['pe_or_ps'] = None
-    # Price vs SMA
-    sma200 = calculate_sma(hist_df['Close'], 200); price_vs_sma_score = None
-    if sma200 is not None and last_price is not None and sma200 > 1e-6: price_diff_pct = (last_price - sma200) / sma200; price_vs_sma_score = normalize_score(price_diff_pct, PRICE_VS_SMA_RANGE[0], PRICE_VS_SMA_RANGE[1], False); intermediate_scores['price_vs_sma'] = price_vs_sma_score; available_factors_weight += current_weights.get('price_vs_sma', 0); logging.info(f"[{ticker_symbol}] Price/SMA200 (% diff: {price_diff_pct*100:.1f}%) -> Score: {price_vs_sma_score:.2f}")
-    else: intermediate_scores['price_vs_sma'] = None; logging.warning(f"[{ticker_symbol}] SMA200/Price unavailable.")
-    # Beta
-    beta = get_stock_beta(info); beta_score = None
-    if beta is not None: beta_score = normalize_score(beta, BETA_RANGE[0], BETA_RANGE[1], True); intermediate_scores['beta'] = beta_score; available_factors_weight += current_weights.get('beta', 0); logging.info(f"[{ticker_symbol}] Beta: {beta:.2f} -> Score: {beta_score:.2f}")
-    else: intermediate_scores['beta'] = None; logging.warning(f"[{ticker_symbol}] Beta unavailable.")
-    # Piotroski
-    f_score, _ = calculate_piotroski_f_score(ticker_symbol); piotroski_risk_score = None
-    if f_score is not None: piotroski_risk_score = normalize_score(f_score, 0, 9, False); intermediate_scores['piotroski'] = piotroski_risk_score; available_factors_weight += current_weights.get('piotroski', 0); logging.info(f"[{ticker_symbol}] Piotroski F-Score: {f_score}/9 -> Score: {piotroski_risk_score:.2f}")
-    else: intermediate_scores['piotroski'] = None; logging.warning(f"[{ticker_symbol}] Piotroski F-Score calc failed.")
-    # VIX
-    vix_score = None
-    if vix_value is not None: vix_score = normalize_score(vix_value, VIX_RANGE[0], VIX_RANGE[1], True); intermediate_scores['vix'] = vix_score; available_factors_weight += current_weights.get('vix', 0); logging.info(f"[{ticker_symbol}] VIX: {vix_value:.2f} -> Score: {vix_score:.2f}")
-    else: intermediate_scores['vix'] = None; logging.warning(f"[{ticker_symbol}] VIX unavailable.")
-    # CVaR
-    cvar_score = None
-    if can_calc_advanced_risk and current_weights.get('cvar', 0) > 1e-6:
-        try: cvar_val = calculate_owa_risk(returns_1y, owa_cvar, alpha=CVAR_ALPHA)
-        except Exception as e: logging.error(f"[{ticker_symbol}] Error calling CVaR: {e}", exc_info=True); cvar_val = None
-        if cvar_val is not None and pd.notna(cvar_val): cvar_abs = abs(cvar_val); cvar_score = normalize_score(cvar_abs, CVAR_RANGE[0], CVAR_RANGE[1], True); intermediate_scores['cvar'] = cvar_score; available_factors_weight += current_weights.get('cvar', 0); logging.info(f"[{ticker_symbol}] CVaR ({CVAR_ALPHA*100:.0f}%, daily): {cvar_val:.4f} -> Score: {cvar_score:.2f}")
-        else: intermediate_scores['cvar'] = None; logging.warning(f"[{ticker_symbol}] CVaR calc None/NaN.")
-    else: intermediate_scores['cvar'] = None; logging.warning(f"[{ticker_symbol}] CVaR calc skipped (low returns or zero weight).")
-    # CDaR
-    cdar_score = None
-    if can_calc_advanced_risk and current_weights.get('cdar', 0) > 1e-6:
-         try: cdar_val = rk.CDaR_Abs(returns_1y.values, alpha=CVAR_ALPHA)
-         except Exception as e: logging.error(f"[{ticker_symbol}] Error calculating CDaR_Abs: {e}", exc_info=True); cdar_val = None
-         if cdar_val is not None and pd.notna(cdar_val): cdar_score = normalize_score(cdar_val, CDAR_RANGE[0], CDAR_RANGE[1], True); intermediate_scores['cdar'] = cdar_score; available_factors_weight += current_weights.get('cdar', 0); logging.info(f"[{ticker_symbol}] CDaR ({CVAR_ALPHA*100:.0f}%): {cdar_val:.4f} -> Score: {cdar_score:.2f}")
-         else: intermediate_scores['cdar'] = None; logging.warning(f"[{ticker_symbol}] CDaR calc None/NaN.")
-    else: intermediate_scores['cdar'] = None; logging.warning(f"[{ticker_symbol}] CDaR calc skipped (low returns or zero weight).")
-    # MDD
-    mdd_score = None
-    if not hist_df.empty:
-         mdd_val = calculate_mdd(hist_df['Close'])
-         if mdd_val is not None and pd.notna(mdd_val): mdd_abs = abs(mdd_val); mdd_score = normalize_score(mdd_abs, MDD_RANGE[0], MDD_RANGE[1], True); intermediate_scores['mdd'] = mdd_score; available_factors_weight += current_weights.get('mdd', 0); logging.info(f"[{ticker_symbol}] MDD (hist period): {mdd_val*100:.2f}% -> Score: {mdd_score:.2f}")
-         else: intermediate_scores['mdd'] = None; logging.warning(f"[{ticker_symbol}] MDD calc failed or None/NaN.")
-    else: intermediate_scores['mdd'] = None; logging.warning(f"[{ticker_symbol}] MDD calc skipped (no history).")
-    # GMD
-    gmd_score = None
-    if can_calc_advanced_risk and current_weights.get('gmd', 0) > 1e-6:
-        try: owa_func = owa.owa_gmd if RISKFOLIO_AVAILABLE else _fallback_owa_gmd; gmd_val = calculate_owa_risk(returns_1y, owa_func)
-        except Exception as e: logging.error(f"[{ticker_symbol}] Error calculating GMD: {e}", exc_info=True); gmd_val = None
-        if gmd_val is not None and pd.notna(gmd_val): gmd_score = normalize_score(gmd_val, GMD_RANGE[0], GMD_RANGE[1], True); intermediate_scores['gmd'] = gmd_score; available_factors_weight += current_weights.get('gmd', 0); logging.info(f"[{ticker_symbol}] GMD (daily): {gmd_val:.4f} -> Score: {gmd_score:.2f}")
-        else: intermediate_scores['gmd'] = None; logging.warning(f"[{ticker_symbol}] GMD calc None/NaN.")
-    else: intermediate_scores['gmd'] = None; logging.warning(f"[{ticker_symbol}] GMD calc skipped (low returns or zero weight).")
+    """
+    Calculates a dynamic risk score (0-100, higher is riskier) for a stock.
 
-    # Final Score Calculation
-    final_score = 0.0; valid_scores_count = sum(1 for score in intermediate_scores.values() if score is not None); logging.info(f"[{ticker_symbol}] Available Factors Original Weight Sum: {available_factors_weight:.3f}, Valid Scores: {valid_scores_count}")
-    valid_factors = {k: v for k, v in current_weights.items() if intermediate_scores.get(k) is not None}; total_valid_original_weight = sum(valid_factors.values())
-    if total_valid_original_weight < 0.01 or valid_scores_count == 0: logging.error(f"[{ticker_symbol}] FAILED Risk Score: Low valid factor weight ({total_valid_original_weight:.3f})."); return None, intermediate_scores, total_valid_original_weight
+    Args:
+        ticker_symbol: The stock ticker.
+        hist_df: DataFrame with historical OHLCV data (needs 'Close' column). Index should be datetime.
+        weights: Dictionary of weights for each risk factor. Defaults to DEFAULT_WEIGHTS.
+        cov_method: Covariance calculation method (e.g., 'hist', 'ewma1', 'ledoit').
+        vol_window: Window (in trading days) for volatility calculation.
+
+    Returns:
+        Tuple: (final_score, intermediate_scores, total_valid_original_weight)
+               - final_score (float | None): The calculated weighted risk score, or None if calculation fails.
+               - intermediate_scores (dict): Dictionary mapping factor names to their 0-100 scores.
+               - total_valid_original_weight (float): The sum of original weights for factors that could be calculated.
+    """
+    logging.info(f"[{ticker_symbol}] --- Starting Dynamic Risk Score Calculation ---")
+    intermediate_scores = {}
+    current_weights = weights if weights is not None else DEFAULT_WEIGHTS.copy()
+
+    # --- 1. Initial Data Checks and Setup ---
+    try:
+        if hist_df is None or hist_df.empty or 'Close' not in hist_df.columns or not isinstance(hist_df.index, pd.DatetimeIndex):
+            logging.error(f"[{ticker_symbol}] FAILED Risk Score: Invalid or Empty history DataFrame provided.")
+            return None, {}, 0.0
+        if len(hist_df) < 2:
+             logging.error(f"[{ticker_symbol}] FAILED Risk Score: Insufficient history (< 2 days).")
+             return None, {}, 0.0
+
+        logging.info(f"[{ticker_symbol}] Risk score func: Using pre-fetched history ({len(hist_df)} rows). Fetching yfinance info...")
+        ticker = yf.Ticker(ticker_symbol)
+        try:
+            info = ticker.info
+            if not info or not info.get('symbol'): # Basic check if info seems valid
+                 logging.warning(f"[{ticker_symbol}] Yahoo info empty/invalid. Reconstructing minimal info.")
+                 info = {'symbol': ticker_symbol, 'quoteType': 'EQUITY', 'currentPrice': hist_df['Close'].iloc[-1]}
+        except Exception as info_err:
+            logging.warning(f"[{ticker_symbol}] Risk score: Info fetch failed: {info_err}. Reconstructing minimal info.")
+            info = {'symbol': ticker_symbol, 'quoteType': 'EQUITY', 'currentPrice': hist_df['Close'].iloc[-1]}
+
+        # Calculate returns (use log returns for some calcs if preferred, but pct_change is fine for most here)
+        returns_1y = hist_df['Close'].pct_change().dropna()
+        if returns_1y.empty:
+            logging.error(f"[{ticker_symbol}] FAILED Risk Score: Could not calculate returns (history length: {len(hist_df)}).")
+            return None, intermediate_scores, 0.0
+        logging.info(f"[{ticker_symbol}] Risk score: Valid return rows for risk calculations: {len(returns_1y)}")
+
+        # Check data sufficiency for different calculations
+        min_returns_for_vol = max(vol_window, 2) # Need at least 2 returns for std dev
+        min_returns_needed_advanced_risk = max(vol_window, int(np.ceil(1 / CVAR_ALPHA)) + 5, 21) # Ensure enough for CVaR, CDaR, GMD, SMA etc.
+        can_calc_vol = len(returns_1y) >= min_returns_for_vol
+        can_calc_advanced_risk = len(returns_1y) >= min_returns_needed_advanced_risk
+        if not can_calc_advanced_risk:
+            logging.warning(f"[{ticker_symbol}] Insufficient returns ({len(returns_1y)} < {min_returns_needed_advanced_risk}) for some advanced risk factors (CVaR, CDaR, GMD, longer SMAs).")
+        elif not can_calc_vol:
+            logging.warning(f"[{ticker_symbol}] Insufficient returns ({len(returns_1y)} < {min_returns_for_vol}) for volatility calculation.")
+
+
+        last_price = hist_df['Close'].iloc[-1]
+        vix_value = get_vix_cached() # Fetches VIX value
+
+    except Exception as e:
+        logging.error(f"[{ticker_symbol}] FAILED Risk Score during initial setup/info fetch: {e}", exc_info=True)
+        return None, {}, 0.0
+
+    # --- 2. Calculate Individual Factor Scores ---
+    logging.info(f"[{ticker_symbol}] Calculating individual risk factors...")
+
+    # Factor: Volatility (Annualized Standard Deviation)
+    vol_ann = None
+    if can_calc_vol and current_weights.get('volatility', 0) > 1e-6:
+        try:
+            returns_for_vol = returns_1y.tail(vol_window)
+            # Using simple std dev for single ticker, covar_matrix is overkill here but kept for consistency if refactored later
+            vol_daily = returns_for_vol.std()
+            if vol_daily is not None and pd.notna(vol_daily) and vol_daily >= 0:
+                vol_ann = vol_daily * np.sqrt(252)
+                logging.info(f"[{ticker_symbol}] Volatility (Daily): {vol_daily:.4f} -> Annualized: {vol_ann:.4f}")
+            else:
+                logging.warning(f"[{ticker_symbol}] Daily volatility calculation invalid: {vol_daily}")
+        except Exception as e:
+            logging.error(f"[{ticker_symbol}] Volatility calculation error: {e}")
+    else:
+        logging.warning(f"[{ticker_symbol}] Volatility calculation skipped (insufficient data or zero weight).")
+    intermediate_scores['volatility'] = normalize_score(vol_ann, VOLATILITY_RANGE[0], VOLATILITY_RANGE[1], higher_is_riskier=True) if vol_ann is not None else None
+
+    # Factor: Semi Deviation (Annualized)
+    semi_dev_ann = None
+    if can_calc_advanced_risk and current_weights.get('semi_deviation', 0) > 1e-6:
+        try:
+            # Ensure returns are numpy array for Riskfolio/fallback function
+            returns_array = returns_1y.values
+            semi_dev_daily = rk.SemiDeviation(returns_array) # Uses Riskfolio or fallback
+            if semi_dev_daily is not None and pd.notna(semi_dev_daily) and semi_dev_daily >= 0:
+                semi_dev_ann = semi_dev_daily * np.sqrt(252)
+                logging.info(f"[{ticker_symbol}] Semi Deviation (Daily): {semi_dev_daily:.4f} -> Annualized: {semi_dev_ann:.4f}")
+            else:
+                 logging.warning(f"[{ticker_symbol}] Semi Deviation daily calculation invalid: {semi_dev_daily}")
+        except Exception as e:
+            logging.error(f"[{ticker_symbol}] Semi Deviation calculation error: {e}", exc_info=False) # Keep log less verbose
+    else:
+        logging.warning(f"[{ticker_symbol}] Semi Deviation calculation skipped (insufficient data or zero weight).")
+    intermediate_scores['semi_deviation'] = normalize_score(semi_dev_ann, SEMIDEV_RANGE[0], SEMIDEV_RANGE[1], higher_is_riskier=True) if semi_dev_ann is not None else None
+
+    # Factor: Market Cap (Log Normalized)
+    market_cap_raw = info.get('marketCap')
+    mcap_val = None
+    if market_cap_raw is not None and isinstance(market_cap_raw, (int, float)) and market_cap_raw > 0:
+        mcap_val = market_cap_raw
+        logging.info(f"[{ticker_symbol}] Market Cap (Raw): {mcap_val:,.0f}")
+    else:
+        logging.warning(f"[{ticker_symbol}] Market Cap unavailable or invalid: {market_cap_raw}")
+    intermediate_scores['market_cap'] = normalize_score(mcap_val, MARKET_CAP_RANGE_LOG[0], MARKET_CAP_RANGE_LOG[1], higher_is_riskier=False, is_log_range=True) if mcap_val is not None else None
+
+    # Factor: Liquidity (Average Volume - Log Normalized)
+    volume_raw = info.get('averageDailyVolume10Day', info.get('averageVolume', info.get('regularMarketVolume')))
+    volume_val = None
+    if volume_raw is not None and isinstance(volume_raw, (int, float)) and volume_raw > 0:
+        volume_val = volume_raw
+        logging.info(f"[{ticker_symbol}] Avg Volume (Raw): {volume_val:,.0f}")
+    else:
+        logging.warning(f"[{ticker_symbol}] Avg Volume unavailable or invalid: {volume_raw}")
+    intermediate_scores['liquidity'] = normalize_score(volume_val, VOLUME_RANGE_LOG[0], VOLUME_RANGE_LOG[1], higher_is_riskier=False, is_log_range=True) if volume_val is not None else None
+
+    # Factor: P/E or P/S Ratio
+    pe_ratio = info.get('trailingPE')
+    ps_ratio = info.get('priceToSalesTrailing12Months')
+    valuation_metric = None
+    valuation_source = "None"
+    if pe_ratio is not None and isinstance(pe_ratio, (int, float)) and pd.notna(pe_ratio):
+        if pe_ratio > 0:
+            valuation_metric = pe_ratio
+            valuation_source = f"P/E ({pe_ratio:.2f})"
+            intermediate_scores['pe_or_ps'] = normalize_score(valuation_metric, PE_RATIO_RANGE[0], PE_RATIO_RANGE[1], higher_is_riskier=True)
+        else: # Negative PE is high risk
+            valuation_metric = -1 # Use placeholder to indicate negative PE case handled
+            valuation_source = f"P/E ({pe_ratio:.2f})"
+            intermediate_scores['pe_or_ps'] = 100.0
+            logging.info(f"[{ticker_symbol}] Negative P/E ratio ({pe_ratio:.2f}), setting score to 100.")
+    elif ps_ratio is not None and isinstance(ps_ratio, (int, float)) and pd.notna(ps_ratio) and ps_ratio > 0:
+        valuation_metric = ps_ratio
+        valuation_source = f"P/S ({ps_ratio:.2f})"
+        intermediate_scores['pe_or_ps'] = normalize_score(valuation_metric, PS_RATIO_RANGE[0], PS_RATIO_RANGE[1], higher_is_riskier=True)
+    else:
+        logging.warning(f"[{ticker_symbol}] No valid PE/PS ratio found (PE: {pe_ratio}, PS: {ps_ratio}).")
+        intermediate_scores['pe_or_ps'] = None
+    if valuation_metric is not None:
+         logging.info(f"[{ticker_symbol}] Valuation Metric Used: {valuation_source}")
+    else:
+         logging.info(f"[{ticker_symbol}] Valuation Metric: Unavailable")
+
+    # Factor: Price vs SMA (200-day)
+    price_vs_sma_pct = None
+    if len(hist_df) >= 200: # Check if enough data for SMA200
+        sma200 = calculate_sma(hist_df['Close'], 200)
+        if sma200 is not None and last_price is not None and sma200 > 1e-6:
+            price_vs_sma_pct = (last_price - sma200) / sma200
+            logging.info(f"[{ticker_symbol}] Price vs SMA200: Price={last_price:.2f}, SMA={sma200:.2f}, Diff Pct={price_vs_sma_pct*100:.1f}%")
+        else:
+            logging.warning(f"[{ticker_symbol}] Could not calculate Price vs SMA200 (Price={last_price}, SMA={sma200}).")
+    else:
+        logging.warning(f"[{ticker_symbol}] Price vs SMA200 skipped (insufficient data: {len(hist_df)} < 200).")
+    intermediate_scores['price_vs_sma'] = normalize_score(price_vs_sma_pct, PRICE_VS_SMA_RANGE[0], PRICE_VS_SMA_RANGE[1], higher_is_riskier=False) if price_vs_sma_pct is not None else None # Lower % diff (closer to or below SMA) is riskier in this model
+
+    # Factor: Beta
+    beta_raw = get_stock_beta(info)
+    beta_val = None
+    if beta_raw is not None and pd.notna(beta_raw):
+        beta_val = beta_raw
+        logging.info(f"[{ticker_symbol}] Beta (Raw): {beta_val:.2f}")
+    else:
+        logging.warning(f"[{ticker_symbol}] Beta unavailable or invalid: {beta_raw}")
+    intermediate_scores['beta'] = normalize_score(beta_val, BETA_RANGE[0], BETA_RANGE[1], higher_is_riskier=True) if beta_val is not None else None
+
+    # Factor: Piotroski F-Score
+    f_score = None
+    if current_weights.get('piotroski', 0) > 1e-6:
+        try:
+            f_score, _ = calculate_piotroski_f_score(ticker_symbol) # Caching is inside this function
+            if f_score is not None:
+                logging.info(f"[{ticker_symbol}] Piotroski F-Score (Raw): {f_score}/9")
+            else:
+                logging.warning(f"[{ticker_symbol}] Piotroski F-Score calculation returned None.")
+        except Exception as e:
+            logging.error(f"[{ticker_symbol}] Piotroski F-Score calculation error: {e}")
+    else:
+        logging.warning(f"[{ticker_symbol}] Piotroski F-Score skipped (zero weight).")
+    intermediate_scores['piotroski'] = normalize_score(f_score, 0, 9, higher_is_riskier=False) if f_score is not None else None # Higher F-score is better (less risky)
+
+    # Factor: VIX (Market Volatility)
+    vix_val = None
+    if vix_value is not None and pd.notna(vix_value):
+        vix_val = vix_value
+        logging.info(f"[{ticker_symbol}] VIX (Raw): {vix_val:.2f}")
+    else:
+        logging.warning(f"[{ticker_symbol}] VIX value unavailable.")
+    intermediate_scores['vix'] = normalize_score(vix_val, VIX_RANGE[0], VIX_RANGE[1], higher_is_riskier=True) if vix_val is not None else None
+
+    # Factor: CVaR (Conditional Value at Risk) - uses absolute value for normalization
+    cvar_val_raw = None
+    if can_calc_advanced_risk and current_weights.get('cvar', 0) > 1e-6:
+        try:
+            returns_array = returns_1y.values
+            cvar_val_raw = calculate_owa_risk(returns_1y, owa_cvar, alpha=CVAR_ALPHA) # Use the series directly if needed by function
+            if cvar_val_raw is not None and pd.notna(cvar_val_raw):
+                logging.info(f"[{ticker_symbol}] CVaR ({CVAR_ALPHA*100:.0f}%, daily, Raw): {cvar_val_raw:.4f}")
+            else:
+                logging.warning(f"[{ticker_symbol}] CVaR calculation returned None/NaN.")
+        except Exception as e:
+            logging.error(f"[{ticker_symbol}] CVaR calculation error: {e}", exc_info=False)
+    else:
+        logging.warning(f"[{ticker_symbol}] CVaR calculation skipped (insufficient data or zero weight).")
+    intermediate_scores['cvar'] = normalize_score(abs(cvar_val_raw), CVAR_RANGE[0], CVAR_RANGE[1], higher_is_riskier=True) if cvar_val_raw is not None else None
+
+    # Factor: CDaR (Conditional Drawdown at Risk)
+    cdar_val_raw = None
+    if can_calc_advanced_risk and current_weights.get('cdar', 0) > 1e-6:
+         try:
+             returns_array = returns_1y.values
+             cdar_val_raw = rk.CDaR_Abs(returns_array, alpha=CVAR_ALPHA) # Uses Riskfolio or fallback
+             if cdar_val_raw is not None and pd.notna(cdar_val_raw):
+                 logging.info(f"[{ticker_symbol}] CDaR ({CVAR_ALPHA*100:.0f}%, Raw): {cdar_val_raw:.4f}")
+             else:
+                 logging.warning(f"[{ticker_symbol}] CDaR calculation returned None/NaN.")
+         except Exception as e:
+             logging.error(f"[{ticker_symbol}] CDaR calculation error: {e}", exc_info=False)
+    else:
+         logging.warning(f"[{ticker_symbol}] CDaR calculation skipped (insufficient data or zero weight).")
+    intermediate_scores['cdar'] = normalize_score(cdar_val_raw, CDAR_RANGE[0], CDAR_RANGE[1], higher_is_riskier=True) if cdar_val_raw is not None else None
+
+    # Factor: MDD (Maximum Drawdown) - uses absolute value for normalization
+    mdd_val_raw = None
+    if not hist_df['Close'].empty:
+         try:
+             mdd_val_raw = calculate_mdd(hist_df['Close']) # Uses full history provided
+             if mdd_val_raw is not None and pd.notna(mdd_val_raw):
+                 logging.info(f"[{ticker_symbol}] MDD (Hist Period, Raw): {mdd_val_raw*100:.2f}%")
+             else:
+                 logging.warning(f"[{ticker_symbol}] MDD calculation returned None/NaN.")
+         except Exception as e:
+             logging.error(f"[{ticker_symbol}] MDD calculation error: {e}")
+    else:
+         logging.warning(f"[{ticker_symbol}] MDD calculation skipped (no history).")
+    # Ensure mdd_val_raw is negative or zero before taking abs
+    mdd_val_abs = abs(mdd_val_raw) if mdd_val_raw is not None and mdd_val_raw <= 0 else None
+    intermediate_scores['mdd'] = normalize_score(mdd_val_abs, MDD_RANGE[0], MDD_RANGE[1], higher_is_riskier=True) if mdd_val_abs is not None else None
+
+    # Factor: GMD (Gini Mean Difference)
+    gmd_val_raw = None
+    if can_calc_advanced_risk and current_weights.get('gmd', 0) > 1e-6:
+        try:
+            owa_func = owa.owa_gmd if RISKFOLIO_AVAILABLE else _fallback_owa_gmd
+            gmd_val_raw = calculate_owa_risk(returns_1y, owa_func) # Use the series directly
+            if gmd_val_raw is not None and pd.notna(gmd_val_raw):
+                logging.info(f"[{ticker_symbol}] GMD (daily, Raw): {gmd_val_raw:.4f}")
+            else:
+                logging.warning(f"[{ticker_symbol}] GMD calculation returned None/NaN.")
+        except Exception as e:
+            logging.error(f"[{ticker_symbol}] GMD calculation error: {e}", exc_info=False)
+    else:
+        logging.warning(f"[{ticker_symbol}] GMD calculation skipped (insufficient data or zero weight).")
+    intermediate_scores['gmd'] = normalize_score(gmd_val_raw, GMD_RANGE[0], GMD_RANGE[1], higher_is_riskier=True) if gmd_val_raw is not None else None
+
+    # --- 3. Calculate Final Weighted Score ---
+    final_score = 0.0
+    total_valid_original_weight = 0.0
+    valid_factors_details = {} # Store scores and weights used
+
+    # Determine which factors actually produced a score
+    valid_factors = {k: v for k, v in current_weights.items() if intermediate_scores.get(k) is not None}
+    total_valid_original_weight = sum(valid_factors.values())
+    valid_scores_count = len(valid_factors)
+
+    logging.info(f"[{ticker_symbol}] Factors with valid scores: {valid_scores_count}. Total original weight of valid factors: {total_valid_original_weight:.3f}")
+
+    if total_valid_original_weight < 1e-6 or valid_scores_count == 0:
+        logging.error(f"[{ticker_symbol}] FAILED Risk Score: No valid factors found or total weight is zero.")
+        # Return None score, but provide the intermediate scores (even if all None)
+        return None, intermediate_scores, 0.0
+
+    # Renormalize weights based on available factors
     renormalized_weights = {k: v / total_valid_original_weight for k, v in valid_factors.items()}
+    logging.info(f"[{ticker_symbol}] Renormalized Weights: { {k: f'{w:.3f}' for k, w in renormalized_weights.items()} }")
+
+    # Calculate weighted sum
     for factor, score in intermediate_scores.items():
-        if score is not None and factor in renormalized_weights: renormalized_weight = renormalized_weights[factor]; final_score += score * renormalized_weight; logging.debug(f"[{ticker_symbol}] Score contribution: '{factor}', Score={score:.2f}, RenormW={renormalized_weight:.3f}, Add={score * renormalized_weight:.2f}")
-        elif score is None: renormalized_weights[factor] = 0
-    vol_score_val = intermediate_scores.get('volatility'); cvar_score_val = intermediate_scores.get('cvar')
-    if vol_score_val is not None and cvar_score_val is not None and vol_score_val > 95 and cvar_score_val > 95: boost = 5.0; final_score += boost; final_score = min(100.0, final_score); logging.info(f"[{ticker_symbol}] Extreme Volatility + Tail Risk Boost (+{boost:.1f})")
-    final_score = max(0.0, min(100.0, final_score)); logging.info(f"[{ticker_symbol}] --- Final Weighted Risk Score: {final_score:.2f} (Based on {total_valid_original_weight:.2f} original weight) ---"); return final_score, intermediate_scores, total_valid_original_weight
+        if score is not None and factor in renormalized_weights:
+            renormalized_weight = renormalized_weights[factor]
+            contribution = score * renormalized_weight
+            final_score += contribution
+            valid_factors_details[factor] = {'score': score, 'renorm_weight': renormalized_weight, 'contribution': contribution}
+            logging.debug(f"[{ticker_symbol}] Score contribution: '{factor}', Score={score:.2f}, RenormW={renormalized_weight:.3f}, Add={contribution:.2f}")
+        #else: # Factor score was None or had zero original weight
+            #logging.debug(f"[{ticker_symbol}] Factor '{factor}' skipped in final sum (Score: {score}, OrigWeight: {current_weights.get(factor, 0)})")
+
+
+    # Optional: Apply boost for combined high risk signals (check if scores exist first)
+    vol_score_val = intermediate_scores.get('volatility')
+    cvar_score_val = intermediate_scores.get('cvar')
+    if vol_score_val is not None and cvar_score_val is not None:
+         if vol_score_val > 95 and cvar_score_val > 95:
+             boost = 5.0 # Small boost for concurrent extreme risk signals
+             final_score += boost
+             logging.info(f"[{ticker_symbol}] Applied Extreme Volatility + Tail Risk Boost (+{boost:.1f})")
+
+    # Clip final score to 0-100 range
+    final_score = max(0.0, min(100.0, final_score))
+
+    logging.info(f"[{ticker_symbol}] --- Final Weighted Risk Score: {final_score:.2f} (Based on {total_valid_original_weight:.2f} original weight from {valid_scores_count} factors) ---")
+    logging.debug(f"[{ticker_symbol}] Factor Contributions: {valid_factors_details}")
+
+    return final_score, intermediate_scores, total_valid_original_weight
 def get_risk_category(score):
     if score is None or pd.isna(score): return "N/A"
     try:
