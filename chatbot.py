@@ -84,7 +84,7 @@ ETS_FORECAST_CACHE_DURATION_SECONDS = 1800 # Cache ETS forecast results for 30 m
 
 # --- API Key Loading (HARDCODED as requested - NOT RECOMMENDED FOR SECURITY) ---
 # WARNING: Exposing API keys like this is highly insecure. Use environment variables or secrets management.
-OPENAI_API_KEY = "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" # Replace with your actual key
+OPENAI_API_KEY = "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" # Replace with your actual key
 NEWS_API_KEY = 'd76a502fa00946bfae52c439094dd578' # Replace with your actual key
 FMP_API_KEY = 'yZ8fSVddKFjMZH722j8ABVX9qjCUKbgF' # Replace with your actual key
 # --- End of Hardcoded API Keys ---
